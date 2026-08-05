@@ -1,0 +1,6 @@
+# ml/ research track only — the app itself needs none of this.
+# Kaggle images already ship torch/torchvision; there you only need `pip install timm`.
+torch>=2.2
+torchvision>=0.17
+timm>=1.0
+pillow>=10.0

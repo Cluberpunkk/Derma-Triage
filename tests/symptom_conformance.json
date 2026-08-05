@@ -1,0 +1,149 @@
+{
+  "_comment": [
+    "HAND-WRITTEN CONFORMANCE FIXTURE. Do not generate this file.",
+    "",
+    "ml/gen_symptom_rules.py generates the JS gate from the Python one, so a check",
+    "that compares them can only detect drift between generator runs — it passed",
+    "while BOTH were wrong (the generator template hardcoded a tier list that had no",
+    "'emergency', so a fired emergency rule silently returned tier 'none').",
+    "",
+    "This fixture is written by hand from the intended behaviour. Python and JS each",
+    "run against it independently, so a shared generator error fails here because the",
+    "fixture did not come from the generator.",
+    "",
+    "CI requires at least one case per tier, including 'none'.",
+    "",
+    "Values are the ANSWERS a user gives. Absent field = not answered."
+  ],
+  "required_tier_coverage": ["none", "soon", "today", "emergency"],
+  "cases": [
+    {
+      "name": "no answers at all",
+      "answers": {},
+      "tier": "none",
+      "message": "",
+      "short_circuit": false,
+      "rules_fired": []
+    },
+    {
+      "name": "all answers negative",
+      "answers": {"breathing_difficulty": false, "fever": false, "tender": false},
+      "tier": "none",
+      "message": "",
+      "short_circuit": false,
+      "rules_fired": []
+    },
+    {
+      "name": "throat tightness alone -> emergency (1-of-4)",
+      "answers": {"throat_tightness": true},
+      "tier": "emergency",
+      "message": "Call emergency services now.",
+      "short_circuit": true,
+      "rules_fired": ["airway_emergency"]
+    },
+    {
+      "name": "breathing difficulty alone -> emergency",
+      "answers": {"breathing_difficulty": true},
+      "tier": "emergency",
+      "message": "Call emergency services now.",
+      "short_circuit": true,
+      "rules_fired": ["airway_emergency"]
+    },
+    {
+      "name": "emergency outranks today when both fire",
+      "answers": {"tongue_swelling": true, "mucosal_involvement": true},
+      "tier": "emergency",
+      "message": "Call emergency services now.",
+      "short_circuit": true,
+      "rules_fired": ["airway_emergency", "systemic_involvement"]
+    },
+    {
+      "name": "mucosal involvement alone -> today (1-of-3)",
+      "answers": {"mucosal_involvement": true},
+      "tier": "today",
+      "message": "Please seek care today.",
+      "short_circuit": false,
+      "rules_fired": ["systemic_involvement"]
+    },
+    {
+      "name": "spreading infection 2-of-4 -> today",
+      "answers": {"warm_to_touch": true, "tender": true},
+      "tier": "today",
+      "message": "Please seek care today.",
+      "short_circuit": false,
+      "rules_fired": ["spreading_infection"]
+    },
+    {
+      "name": "spreading infection 1-of-4 is BELOW threshold -> none",
+      "answers": {"warm_to_touch": true},
+      "tier": "none",
+      "message": "",
+      "short_circuit": false,
+      "rules_fired": []
+    },
+    {
+      "name": "today outranks soon when both fire",
+      "answers": {"skin_peeling": true, "non_healing_4w": true},
+      "tier": "today",
+      "message": "Please seek care today.",
+      "short_circuit": false,
+      "rules_fired": ["systemic_involvement", "non_healing_or_changing"]
+    },
+    {
+      "name": "non-healing sore alone -> soon (1-of-3)",
+      "answers": {"non_healing_4w": true},
+      "tier": "soon",
+      "message": "Please see a doctor soon.",
+      "short_circuit": false,
+      "rules_fired": ["non_healing_or_changing"]
+    },
+    {
+      "name": "systemic illness 2-of-5 -> soon",
+      "answers": {"fever": true, "joint_pain": true},
+      "tier": "soon",
+      "message": "Please see a doctor soon.",
+      "short_circuit": false,
+      "rules_fired": ["systemic_illness"]
+    },
+    {
+      "name": "systemic illness 1-of-5 is BELOW threshold -> none",
+      "answers": {"joint_pain": true},
+      "tier": "none",
+      "message": "",
+      "short_circuit": false,
+      "rules_fired": []
+    },
+    {
+      "name": "pigmented lesion 2-of-6 -> soon",
+      "answers": {"lesion_ugly_duckling": true, "lesion_changing_months": true},
+      "tier": "soon",
+      "message": "Please see a doctor soon.",
+      "short_circuit": false,
+      "rules_fired": ["pigmented_lesion"]
+    },
+    {
+      "name": "pigmented lesion 1-of-6 is BELOW threshold -> none",
+      "answers": {"lesion_ugly_duckling": true},
+      "tier": "none",
+      "message": "",
+      "short_circuit": false,
+      "rules_fired": []
+    },
+    {
+      "name": "vulnerable host alone -> soon (1-of-3)",
+      "answers": {"immunosuppressed": true},
+      "tier": "soon",
+      "message": "Please see a doctor soon.",
+      "short_circuit": false,
+      "rules_fired": ["vulnerable_host"]
+    },
+    {
+      "name": "fever counts toward spreading_infection AND systemic_illness",
+      "answers": {"fever": true, "tender": true, "fatigue": true},
+      "tier": "today",
+      "message": "Please seek care today.",
+      "short_circuit": false,
+      "rules_fired": ["spreading_infection", "systemic_illness"]
+    }
+  ]
+}

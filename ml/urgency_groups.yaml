@@ -1,0 +1,173 @@
+# Urgency grouping for the DermNet 23-class label space.
+#
+# EDIT THIS FILE, NOT PYTHON. ml/urgency.py loads it at runtime.
+#
+# tier:        soon | routine
+#              soon    = plausible malignancy, infection that can progress quickly,
+#                        blistering, or systemic involvement. Missing one of these
+#                        is the costly direction.
+#              routine = delay is not dangerous.
+# confidence:  high | medium | low
+#              How safe the tier assignment is GIVEN that the DermNet folder often
+#              bundles several diseases. `low` means the folder mixes conditions
+#              whose urgency genuinely differs, so any metric computed from it is
+#              contaminated. Audit output reports these separately.
+# reviewed_by: null until a named dermatologist signs the entry off. Nothing here
+#              should drive user-facing behaviour while this is null.
+#
+# Anything absent from this file defaults to tier "soon" — unknown must behave like
+# "get it looked at", never like "it's fine".
+
+version: 1
+default_tier: soon
+
+classes:
+  "Acne and Rosacea Photos":
+    tier: routine
+    confidence: high
+    rationale: "Chronic, non-urgent. Delay is not dangerous."
+    reviewed_by: null
+
+  "Actinic Keratosis Basal Cell Carcinoma and other Malignant Lesions":
+    tier: soon
+    confidence: high
+    rationale: "Premalignant and malignant lesions. Referral is the point."
+    reviewed_by: null
+
+  "Atopic Dermatitis Photos":
+    tier: routine
+    confidence: high
+    rationale: "Chronic relapsing inflammatory disease."
+    reviewed_by: null
+
+  "Bullous Disease Photos":
+    tier: soon
+    confidence: medium
+    rationale: "Immunobullous disease can be serious, but the folder likely also
+      contains benign blistering. Tier is precautionary."
+    reviewed_by: null
+
+  "Cellulitis Impetigo and other Bacterial Infections":
+    tier: soon
+    confidence: high
+    rationale: "Cellulitis can progress within hours and needs systemic antibiotics."
+    reviewed_by: null
+
+  "Eczema Photos":
+    tier: routine
+    confidence: high
+    rationale: "Chronic inflammatory disease."
+    reviewed_by: null
+
+  "Exanthems and Drug Eruptions":
+    tier: soon
+    confidence: medium
+    rationale: "Most drug eruptions are benign, but SJS/TEN present here and are
+      emergencies. Cannot be separated from the folder label."
+    reviewed_by: null
+
+  "Hair Loss Photos Alopecia and other Hair Diseases":
+    tier: routine
+    confidence: high
+    rationale: "Non-urgent; scarring alopecia benefits from earlier review but is
+      not an emergency."
+    reviewed_by: null
+
+  "Herpes HPV and other STDs Photos":
+    tier: routine
+    confidence: low
+    rationale: "MIXED. Primary HSV benefits from antivirals started early; warts are
+      routine. Urgency differs within the folder."
+    reviewed_by: null
+
+  "Light Diseases and Disorders of Pigmentation":
+    tier: routine
+    confidence: high
+    rationale: "Vitiligo, melasma, PIH — cosmetically important, not dangerous."
+    reviewed_by: null
+
+  "Lupus and other Connective Tissue diseases":
+    tier: soon
+    confidence: medium
+    rationale: "Cutaneous signs of systemic disease warrant workup."
+    reviewed_by: null
+
+  "Melanoma Skin Cancer Nevi and Moles":
+    tier: soon
+    confidence: low
+    rationale: "CONTAMINATED. Merges benign nevi and moles with melanoma. Most of
+      this folder is almost certainly benign, so counting all of it as urgent
+      inflates both prevalence and the miss count. See the audit table — metrics
+      are reported with and without this class."
+    reviewed_by: null
+
+  "Nail Fungus and other Nail Disease":
+    tier: routine
+    confidence: medium
+    rationale: "Onychomycosis is routine. Subungual melanoma is rare but present in
+      the differential and would be missed here."
+    reviewed_by: null
+
+  "Poison Ivy Photos and other Contact Dermatitis":
+    tier: routine
+    confidence: high
+    rationale: "Self-limiting on allergen avoidance."
+    reviewed_by: null
+
+  "Psoriasis pictures Lichen Planus and related diseases":
+    tier: routine
+    confidence: high
+    rationale: "Chronic. Erythrodermic psoriasis is urgent but rare and would show
+      systemic signs."
+    reviewed_by: null
+
+  "Scabies Lyme Disease and other Infestations and Bites":
+    tier: routine
+    confidence: low
+    rationale: "MIXED. Scabies is routine; Lyme needs prompt antibiotics. Urgency
+      differs within the folder."
+    reviewed_by: null
+
+  "Seborrheic Keratoses and other Benign Tumors":
+    tier: routine
+    confidence: medium
+    rationale: "Benign by definition, but clinically mimics malignancy — this is a
+      major confusion pair in our matrix, in both directions."
+    reviewed_by: null
+
+  "Systemic Disease":
+    tier: soon
+    confidence: medium
+    rationale: "Cutaneous manifestation of systemic illness."
+    reviewed_by: null
+
+  "Tinea Ringworm Candidiasis and other Fungal Infections":
+    tier: routine
+    confidence: high
+    rationale: "Not urgent, but the highest-value class for this product in India."
+    reviewed_by: null
+
+  "Urticaria Hives":
+    tier: routine
+    confidence: medium
+    rationale: "Isolated urticaria is routine; with angioedema or breathing
+      difficulty it is an emergency, which a photo cannot establish."
+    reviewed_by: null
+
+  "Vascular Tumors":
+    tier: routine
+    confidence: low
+    rationale: "Mostly benign haemangiomas; some vascular malignancies exist."
+    reviewed_by: null
+
+  "Vasculitis Photos":
+    tier: soon
+    confidence: medium
+    rationale: "May indicate systemic vasculitis requiring urgent workup."
+    reviewed_by: null
+
+  "Warts Molluscum and other Viral Infections":
+    tier: routine
+    confidence: high
+    rationale: "Benign, self-limiting."
+    reviewed_by: null

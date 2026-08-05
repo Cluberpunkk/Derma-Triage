@@ -1,0 +1,39 @@
+EOF2
+
+/* --- reticle capture + symptom flow --- */
+.scan-stage { position: relative; border-radius: 12px; overflow: hidden; background: #000; }
+.scan-stage video { width: 100%; display: block; }
+.scan-stage video.mirrored { transform: scaleX(-1); }
+.reticle { position: absolute; border: 3px solid rgba(255,255,255,.95);
+  border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); pointer-events: none; }
+.scan-hints { min-height: 2.2rem; margin: .6rem 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.scan-hints .hint { font-size: .9rem; padding: .25rem .6rem; border-radius: 999px;
+  background: #fff4e5; color: #8a4b00; }
+.scan-hints .hint.ok { background: #eef6ee; color: #2c5f2d; }
+.scan-slider { display: flex; align-items: center; gap: .75rem; margin: .5rem 0; font-size: .9rem; }
+.scan-slider input { flex: 1; }
+.sf-list { list-style: none; padding: 0; margin: 1rem 0; }
+.sf-list li { margin: .5rem 0; }
+.sf-list label { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; }
+.sf-lead { font-size: 1.05rem; }
+.sf-progress { font-size: .85rem; opacity: .7; }
+.sf-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1rem; }
+.sf-note { font-size: .85rem; opacity: .75; margin-top: .8rem; }
+.sf-emergency { border: 2px solid #b3261e; background: #fff0ee; border-radius: 12px; padding: 1rem; }
+.sf-emergency h2 { color: #b3261e; margin-top: 0; }
+.scan-stage { touch-action: none; cursor: crosshair; }
+.wide-frame { position: absolute; inset: 6%; border: 3px dashed rgba(255,255,255,.9);
+  border-radius: 10px; display: flex; align-items: flex-end; justify-content: center;
+  pointer-events: none; }
+.wide-frame span { background: rgba(0,0,0,.55); color: #fff; font-size: .8rem;
+  padding: .2rem .6rem; border-radius: 999px; margin-bottom: .5rem; }
+.scan-mode { display: flex; gap: .5rem; margin: .6rem 0; }
+.scan-mode button { flex: 1; }
+.scan-mode button.on { background: #1f2937; color: #fff; }
+.review-shot img { width: 100%; border-radius: 12px; display: block; }
+.review-check { font-size: .92rem; margin: .8rem 0; padding-left: 1.1rem; }
+.review-check li { margin: .3rem 0; }
+.review-diag { margin-top: .8rem; font-size: .85rem; }
+.review-diag dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .8rem; margin: .5rem 0 0; }
+.review-diag dt { opacity: .7; }
+.review-diag dd { margin: 0; font-family: ui-monospace, monospace; }

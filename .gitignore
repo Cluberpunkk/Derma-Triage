@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# Dependencies and build output
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+console/web/dist/
+*.local
+
+# ---------------------------------------------------------------------------
+# Secrets — never commit. All credentials are read from the environment.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+kaggle.json
+access_token
+
+# ---------------------------------------------------------------------------
+# PATIENT DATA AND COLLECTED CAPTURES — never commit, at any size.
+#
+# data/ holds the DermNet download, generated manifests, trained checkpoints, and
+# — once the pilot runs — real photographs of people's skin with symptom answers.
+# Committing any of it would breach the consent terms in docs/CLINIC_STUDY_spec.md
+# and make the withdrawal guarantee in server/lib/holdout.js unenforceable: git
+# history cannot be un-published once pushed.
+# ---------------------------------------------------------------------------
+data/
+holdout/
+**/holdout/
+**/model_input/
+**/original/
+labels.csv
+rejections.csv
+dropoff.csv
+withdrawals.log
+symptom_gate_eval.json
+
+# ---------------------------------------------------------------------------
+# Model artifacts — large, regenerable, and not source
+# ---------------------------------------------------------------------------
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.ckpt
+runs/
+runs_*/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+ml/.venv/
+ml/config.json
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
