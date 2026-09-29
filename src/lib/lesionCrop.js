@@ -255,14 +255,27 @@ export function captureNative(video, { modelSize = 224, quality = 0.95,
   };
 }
 
-/** Request the highest resolution the device will give us. */
+/**
+ * Camera constraints.
+ *
+ * `forceHighRes` asks for 4096x3072. That is NOT obviously the right thing: asking
+ * for a specific size can make a browser select a different sensor mode — often a
+ * cropped or upscaled one — rather than the native full-frame output it would pick
+ * on its own. Which behaviour a device shows is an empirical question per device, so
+ * both are exposed and getSettings() is recorded for each.
+ *
+ * Default is OFF: let the browser choose, then measure what we got.
+ */
+export function cameraConstraints(facing = "environment", forceHighRes = false) {
+  const video = { facingMode: { ideal: facing } };
+  if (forceHighRes) {
+    video.width = { ideal: 4096 };
+    video.height = { ideal: 3072 };
+  }
+  return { video, audio: false };
+}
+
+/** @deprecated use cameraConstraints(facing, true) */
 export function highResConstraints(facing = "environment") {
-  return {
-    video: {
-      facingMode: { ideal: facing },
-      width: { ideal: 4096 },
-      height: { ideal: 3072 },
-    },
-    audio: false,
-  };
+  return cameraConstraints(facing, true);
 }

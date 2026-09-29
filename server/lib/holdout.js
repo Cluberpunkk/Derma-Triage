@@ -27,27 +27,45 @@ import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./storage.js";
 import { stripExif, b64ToBuffer } from "./images.js";
+import { ALL_SYMPTOM_FIELDS } from "../../src/lib/symptomRules.js";
 
 export const HOLDOUT_DIR = process.env.HOLDOUT_DIR || path.join(DATA_DIR, "holdout");
 
 // Column order must stay in sync with ml/eval_holdout.py's reader and with
 // ml/symptom_gate.py ALL_FIELDS. `true_class` is left blank at capture time — it is
 // filled by a dermatologist in the labelling console, never by the app or the user.
-export const SYMPTOM_FIELDS = [
-  "bleeding_no_trauma", "blisters_large_area", "breathing_difficulty", "changing_lesion",
-  "face_swelling", "fatigue", "fever", "immunosuppressed", "joint_pain",
-  "lesion_bleeds", "lesion_changing_months", "lesion_itches", "lesion_new_after_40",
-  "lesion_non_healing", "lesion_ugly_duckling", "mucosal_involvement", "neonate",
-  "non_healing_4w", "photosensitivity", "pregnant_with_rash", "skin_peeling",
-  "spreading_hours", "tender", "warm_to_touch", "weight_loss",
-];
+// DERIVED, not duplicated. This list was hardcoded and drifted: throat_tightness and
+// tongue_swelling were added with the emergency tier in ml/symptom_gate.py but never
+// reached here, so the emergency rule's own answers would never have been stored on
+// any row. tests/column_coverage.mjs caught it. Importing from the generated module
+// makes that drift impossible — symptomRules.js is itself generated from the Python.
+export const SYMPTOM_FIELDS = [...ALL_SYMPTOM_FIELDS];
 
 export const COLUMNS = [
-  "image_path", "true_class", "urgency", "fitzpatrick",
+  "image_path", "true_class", "urgency",
+  // fitzpatrick is RESERVED FOR A TRAINED READER. It is never written by the app.
+  // Self-report goes to self_reported_tone (Monk 1-10 via a swatch strip), because:
+  //   - Fitzpatrick was built around burn/tan response in light skin and South Asian
+  //     users classify themselves on it inconsistently
+  //   - a self-reported value must not be able to flip fairness_measurable, which
+  //     should mean "a trained reader assigned this"
+  // Keeping them in separate columns also gives three tone signals on one image -
+  // self-report, ITA-from-image, and later the reader's - and comparing them is the
+  // first real validation of the ITA proxy that OPEN-1 rests on.
+  "fitzpatrick", "self_reported_tone", "self_reported_tone_scale",
   "capture_id", "captured_utc", "original_path",
   "source_resolution", "device_model", "capture_distance_cm",
   "crop_method", "crop_confidence", "crop_native_px", "downsample_factor",
   "capture_mode", "localiser_agreed", "localiser_iou",
+  // Which path produced this row. An upload has no reticle, no native crop and no
+  // live quality metrics, so its blanks are EXPECTED; a scan row with the same blanks
+  // is a defect. Without this column the two are indistinguishable after the fact.
+  "capture_path", "camera_facing", "camera_facing_requested",
+  // Preview geometry, so a cropped-preview regression is visible in the DATA.
+  // The stage previously forced a 3/4 box on a 4:3 stream and cropped with
+  // object-fit:cover, which looked like the camera opening zoomed in.
+  "preview_w", "preview_h", "stream_w", "stream_h", "preview_matches_stream",
+  "constraint_mode",
   "quality_sharpness", "quality_brightness", "quality_fill", "quality_passed",
   "symptom_tier", "symptom_rules_fired",
   // Language the QUESTIONNAIRE was answered in. The rules are the load-bearing
@@ -55,6 +73,9 @@ export const COLUMNS = [
   // per-language firing-rate difference is a TRANSLATION defect until proven
   // epidemiological — and it is undetectable unless recorded here.
   "capture_language", "questionnaire_version",
+  // Clinical metadata — the ml/metadata.py fusion inputs. Asked AFTER capture: the
+  // photo is the scarce artifact, so bank it before spending the user's patience.
+  "body_site", "duration", "prior_cream", "prior_steroid_use", "recent_change",
   ...SYMPTOM_FIELDS,
   "consent_training", "consent_version", "notes",
   // The ONLY handle for consent withdrawal. We store no name, phone or email,
@@ -104,7 +125,9 @@ export function writeCapture({
     image_path: rel,
     true_class: "",          // dermatologist-assigned only; never the app or the user
     urgency: "",             // derived from true_class at labelling time
-    fitzpatrick: meta.fitzpatrick || "",
+    fitzpatrick: "",                       // reader-assigned only; never the app
+    self_reported_tone: meta.selfReportedTone ?? "",
+    self_reported_tone_scale: meta.selfReportedTone ? "monk_1_10" : "",
     capture_id: id,
     captured_utc: new Date().toISOString(),
     original_path: relOrig,
@@ -116,14 +139,32 @@ export function writeCapture({
     crop_native_px: crop.w ?? "",
     downsample_factor: meta.downsampleFactor ?? "",
     capture_mode: meta.captureMode || "",
+    capture_path: meta.capturePath || (crop.method ? "scan" : "upload"),
+    camera_facing: meta.cameraFacing || "",
+    camera_facing_requested: meta.cameraFacingRequested || "",
+    preview_w: meta.previewW ?? "",
+    preview_h: meta.previewH ?? "",
+    stream_w: meta.streamW ?? "",
+    stream_h: meta.streamH ?? "",
+    preview_matches_stream: meta.previewMatchesStream || "",
+    constraint_mode: meta.constraintMode || "",
     localiser_agreed: crop.localiserAgreed === undefined ? "" : (crop.localiserAgreed ? "1" : "0"),
     localiser_iou: crop.localiserIou ?? "",
     quality_sharpness: quality.sharpness != null ? Math.round(quality.sharpness) : "",
     quality_brightness: quality.brightness != null ? Math.round(quality.brightness) : "",
     quality_fill: quality.fill != null ? Number(quality.fill).toFixed(3) : "",
-    quality_passed: quality.passed === false ? "no" : "yes",
+    // Tri-state. The old form was `passed === false ? "no" : "yes"`, so a row with NO
+    // quality data recorded "yes" — a wrong value rather than a missing one, and the
+    // reason a metadata-less upload row looked like it had passed the gate.
+    quality_passed: quality.passed === true ? "yes"
+                  : quality.passed === false ? "no" : "",
     capture_language: meta.language || "",
     questionnaire_version: meta.questionnaireVersion || "",
+    body_site: meta.bodySite || "",
+    duration: meta.duration || "",
+    prior_cream: meta.priorCream || "",
+    prior_steroid_use: meta.priorSteroidUse || "",
+    recent_change: meta.recentChange || "",
     symptom_tier: symptomResult.tier || "none",
     symptom_rules_fired: (symptomResult.rulesFired || []).map((r) => r.rule).join("|"),
     consent_training: "yes",
@@ -131,8 +172,13 @@ export function writeCapture({
     notes: meta.notes || "",
     withdrawal_token: consent.withdrawalToken || "",
   };
+  // ONE normalisation point for all 27 fields. Each screen used to normalise its own,
+  // which meant the airway screen could ship un-normalised (it did) and every other
+  // form could repeat it independently. `answered` says whether the questionnaire ran
+  // at all, so a skipped questionnaire stays distinguishable from all-negative answers.
+  const answered = symptoms && Object.keys(symptoms).length > 0;
   for (const f of SYMPTOM_FIELDS) {
-    row[f] = symptoms[f] === true ? "1" : symptoms[f] === false ? "0" : "";
+    row[f] = answered ? (symptoms[f] === true ? "1" : "0") : "";
   }
 
   fs.appendFileSync(csv, COLUMNS.map((c) => csvCell(row[c])).join(",") + "\n");
@@ -183,7 +229,9 @@ export function writeShortCircuit({
     image_path: "",             // no photo was taken; the flow stopped first
     true_class: "",
     urgency: "",
-    fitzpatrick: meta.fitzpatrick || "",
+    fitzpatrick: "",                       // reader-assigned only; never the app
+    self_reported_tone: meta.selfReportedTone ?? "",
+    self_reported_tone_scale: meta.selfReportedTone ? "monk_1_10" : "",
     capture_id: id,
     captured_utc: new Date().toISOString(),
     original_path: "",
@@ -193,10 +241,16 @@ export function writeShortCircuit({
     crop_method: "short-circuit-no-capture",
     crop_confidence: "", crop_native_px: "", downsample_factor: "",
     capture_mode: "", localiser_agreed: "", localiser_iou: "",
+    capture_path: "short-circuit",
+    camera_facing: "",
+    camera_facing_requested: "", preview_w: "", preview_h: "",
+    stream_w: "", stream_h: "", preview_matches_stream: "", constraint_mode: "",
     quality_sharpness: "", quality_brightness: "", quality_fill: "",
     quality_passed: "",
     capture_language: meta.language || "",
     questionnaire_version: meta.questionnaireVersion || "",
+    body_site: "", duration: "", prior_cream: "", prior_steroid_use: "",
+    recent_change: "",                     // no capture happened, so none were asked
     symptom_tier: symptomResult.tier || "",
     symptom_rules_fired: (symptomResult.rulesFired || []).map((r) => r.rule).join("|"),
     consent_training: "yes",

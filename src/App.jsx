@@ -2,9 +2,12 @@ import React, { useState, useRef } from "react";
 import { runTriage } from "./lib/triageEngine.js";
 import ScanCamera from "./components/ScanCamera.jsx";
 import CaptureReview from "./components/CaptureReview.jsx";
+import SymptomFlow from "./components/SymptomFlow.jsx";
+import MetadataForm from "./components/MetadataForm.jsx";
 import { SURFACE_7_URGENCY_VERDICT } from "./lib/surfaces.js";
 import { qualityLabel } from "./lib/cameraQuality.js";
-import { CONSENT_COPY, saveCase, tryBlurFaces } from "./lib/collection.js";
+import { CONSENT_COPY, saveCase, saveHoldoutCapture, saveShortCircuit,
+         newWithdrawalToken, tryBlurFaces } from "./lib/collection.js";
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -120,8 +123,17 @@ const CSS = `
 
 /* ---- live scan ------------------------------------------------------ */
 .dx .scan{}
-.dx .scan-stage{position:relative;border-radius:14px;overflow:hidden;background:#0C1F1E;aspect-ratio:3/4;max-height:420px;margin:0 auto;}
-.dx .scan-video{width:100%;height:100%;object-fit:cover;display:block;}
+/* NO fixed aspect-ratio and NO max-height. The container is sized from the STREAM
+   (inline style in ScanCamera, from track.getSettings()). A fixed 3/4 box forced a
+   4:3 landscape stream to be cropped by object-fit:cover, which looked exactly like
+   the camera opening zoomed in. Seeing the whole sensor frame matters more than
+   filling the box. */
+.dx .scan-stage{position:relative;border-radius:14px;overflow:hidden;background:#0C1F1E;margin:0 auto;width:100%;}
+/* contain, never cover: letterbox rather than crop. If the preview crops, the
+   reticle's fractional position no longer maps onto the pixels captureNative()
+   takes, and every framing decision in the pilot is made against a different image
+   from the one captured. */
+.dx .scan-video{width:100%;height:100%;object-fit:contain;display:block;}
 .dx .scan-video.mirror{transform:scaleX(-1);}
 .dx .scan-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#CFE0DD;font-size:13.5px;font-family:'IBM Plex Mono',monospace;}
 .dx .scan-reticle{position:absolute;left:12%;top:14%;right:12%;bottom:22%;pointer-events:none;}
@@ -169,14 +181,6 @@ const CSS = `
 .dx .blurtoggle input{width:16px;height:16px;margin-top:2px;accent-color:var(--teal);flex:none;}
 `;
 
-const LOCS = ["Face", "Scalp", "Neck", "Chest / Back", "Arm / Hand", "Leg / Foot", "Groin", "Nails", "Other"];
-const DURS = ["< 1 week", "1–4 weeks", "1–6 months", "> 6 months"];
-const SYMS = ["Itching", "Pain", "Burning", "Bleeding", "Spreading", "Scaling", "Color change"];
-const TONES = [
-  { l: "Very fair", f: "I" }, { l: "Fair", f: "II" }, { l: "Medium", f: "III" },
-  { l: "Olive / Tan", f: "IV" }, { l: "Brown", f: "V" }, { l: "Deep brown", f: "VI" },
-];
-const CHANGES = ["No real change", "New / just appeared", "Growing or changing", "Not sure"];
 
 const U = {
   routine: { tag: "Routine", title: "Routine — not an emergency" },
@@ -209,13 +213,6 @@ function resizeImage(file) {
 
 export default function App() {
   const [img, setImg] = useState(null);
-  const [loc, setLoc] = useState("");
-  const [dur, setDur] = useState("");
-  const [sym, setSym] = useState([]);
-  const [applied, setApplied] = useState("");
-  const [steroid, setSteroid] = useState("");
-  const [tone, setTone] = useState("");
-  const [change, setChange] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
@@ -229,6 +226,16 @@ export default function App() {
   // point a bad frame can be caught before it becomes a row a reader must mark
   // ungradable, and reader time is the scarcest resource in the clinic study.
   const [pending, setPending] = useState(null);
+  // Questionnaire answers + the gate's verdict, carried to the holdout row.
+  const [symptomAnswers, setSymptomAnswers] = useState(null);   // null = not asked yet
+  const [emergency, setEmergency] = useState(null);
+  // Post-capture stages. The photo is banked first; these spend patience afterwards.
+  const [stage, setStage] = useState("gate");   // gate -> camera -> review -> rest -> meta
+  const [clinicalMeta, setClinicalMeta] = useState(null);
+  const [symptomTier, setSymptomTier] = useState({ tier: "none", rulesFired: [] });
+  // Shown to the participant after submit — the only handle for withdrawal, since
+  // we deliberately store no name, phone or email.
+  const [withdrawalToken, setWithdrawalToken] = useState("");
   const [trainingConsent, setTrainingConsent] = useState(null); // null | true | false
   const [blurFaces, setBlurFaces] = useState(true);
   const fileRef = useRef(null);
@@ -236,7 +243,7 @@ export default function App() {
   const toggleSym = (s) => setSym((cur) => cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]);
 
   // Front camera for face-area scans, rear otherwise; the user can still flip.
-  const initialFacing = ["Face", "Scalp", "Neck"].includes(loc) ? "user" : "environment";
+  const initialFacing = "environment";
 
   // ScanCamera now returns the native-resolution reticle payload. Adapt it to the
   // { dataUrl, b64 } shape the rest of App uses, and carry the extra artifacts
@@ -258,6 +265,7 @@ export default function App() {
     setPending(null);
     setResult(null);
     setError("");
+    setStage("rest");        // remaining questions, then metadata
   };
 
   const onFile = async (e) => {
@@ -268,18 +276,28 @@ export default function App() {
     catch { setError("Couldn't read that image. Try a different photo."); }
   };
 
-  const canRun = img && loc && dur && !loading;
+  // The legacy loc/dur fields are gone; readiness is now: a photo exists and the
+  // post-capture stages are finished. Upload mode has no stages, so img is enough.
+  // The questionnaire is the pilot's PRIMARY measurable, so the UPLOAD path must run
+  // it too. Previously upload could submit the moment a file was chosen, which is how
+  // a row landed with no symptom answers, no metadata and no quality data at all.
+  const canRun = img && !loading && stage === "done";
 
   const analyze = async () => {
     setLoading(true); setError(""); setResult(null);
-    const tObj = TONES.find((t) => t.l === tone);
+    // Built from the post-capture metadata form. Only consumed by runTriage, which
+    // is gated behind SURFACE_7_URGENCY_VERDICT (off), so this is inert in the pilot
+    // build — kept so re-enabling the surface does not need this reconstructed.
     const details = [
-      `Body location: ${loc}`,
-      `Duration: ${dur}`,
-      `Symptoms reported: ${sym.length ? sym.join(", ") : "none"}`,
-      `Recent change: ${change || "not specified"}`,
-      `Already applied a cream/ointment: ${applied || "not specified"}${applied === "yes" && steroid ? ` — steroid or combination cream: ${steroid}` : ""}`,
-      `Self-reported skin tone: ${tone ? `${tone} (approx Fitzpatrick ${tObj ? tObj.f : "?"})` : "not specified"}`,
+      `Body location: ${clinicalMeta?.bodySite || "not specified"}`,
+      `Duration: ${clinicalMeta?.duration || "not specified"}`,
+      `Recent change: ${clinicalMeta?.recentChange || "not specified"}`,
+      `Already applied a cream/ointment: ${clinicalMeta?.priorCream || "not specified"}` +
+        (clinicalMeta?.priorCream === "yes" && clinicalMeta?.priorSteroidUse
+          ? ` — steroid or combination cream: ${clinicalMeta.priorSteroidUse}` : ""),
+      // Self-reported tone is Monk 1-10 from a swatch strip, NOT Fitzpatrick. It is
+      // never mapped to Fitzpatrick anywhere: that column is reader-assigned only.
+      `Self-reported skin tone (Monk 1-10): ${clinicalMeta?.selfReportedTone || "not specified"}`,
     ].join("\n");
 
     // Optional on-device face blur — applied to whatever we send AND store, so a
@@ -292,11 +310,24 @@ export default function App() {
     // Contribute the case to the training dataset only if the user consented.
     // Fire-and-forget: storage never blocks or changes the triage result.
     if (trainingConsent === true) {
+      // Two consumers, deliberately both: the holdout CSV feeds ml/eval_holdout.py
+      // and the pilot analyses; the SQLite record feeds the labelling console.
+      const token = newWithdrawalToken();
+      setWithdrawalToken(token);
+      saveHoldoutCapture({
+        shot: {
+          ...img, dataUrl: img.dataUrl, originalB64: img.originalB64,
+          meta: { ...(img.meta || {}), ...(clinicalMeta || {}) },
+        },
+        symptoms: symptomAnswers || {}, symptomResult: symptomTier,
+        withdrawalToken: token,
+      });
       saveCase({
         imageB64: sendB64,
-        body_location: loc, duration: dur, symptoms: sym,
-        recent_change: change, prior_cream: applied, steroid,
-        skin_tone_self: tone, face_blurred: faceBlurred,
+        body_location: clinicalMeta?.bodySite || "", duration: clinicalMeta?.duration || "",
+        symptoms: [], recent_change: clinicalMeta?.recentChange || "",
+        prior_cream: clinicalMeta?.priorCream || "", steroid: clinicalMeta?.priorSteroidUse || "",
+        skin_tone_self: clinicalMeta?.selfReportedTone || "", face_blurred: faceBlurred,
       });
     }
 
@@ -329,7 +360,7 @@ export default function App() {
         <p className="sub">Take a photo, answer a few questions, and get a read on what to discuss with a dermatologist — and how soon.</p>
         <div className="engine">
           <span className="dot" />
-          engine: general vision model (placeholder) · not a validated dermatology model
+          pilot build · collecting capture quality and questionnaire answers · no assessment is shown
         </div>
 
         {!result && trainingConsent === null && (
@@ -355,7 +386,29 @@ export default function App() {
                 : <>Not contributing to the dataset — triage only. <button className="linkish" onClick={() => setTrainingConsent(true)}>Contribute instead</button></>}
             </div>
 
-            {img ? (
+            {/* GATE. Until the airway screen is cleared it is the ONLY thing on the
+                step — no tabs, no camera, no upload. It previously rendered inline
+                below the tabs, where it read as one more form block and the camera
+                never opened. Airway angioedema is minutes-scale; it has to be
+                answered before anything else is offered. */}
+            {!emergency && symptomAnswers === null ? (
+              <SymptomFlow
+                phase="emergency"
+                onEmergency={(answers, result) => {
+                  const token = newWithdrawalToken();
+                  setWithdrawalToken(token);
+                  if (trainingConsent === true) {
+                    saveShortCircuit({ symptoms: answers, symptomResult: result,
+                                       withdrawalToken: token });
+                  }
+                  setEmergency(result);
+                }}
+                onComplete={(answers, result) => {
+                  setSymptomAnswers(answers);
+                  setSymptomTier(result);
+                }}
+              />
+            ) : img ? (
               <div className="preview">
                 <img src={img.dataUrl} alt="skin area" />
                 <button onClick={() => setImg(null)}>Replace</button>
@@ -367,7 +420,7 @@ export default function App() {
                   <button role="tab" aria-selected={mode === "upload"} className={mode === "upload" ? "on" : ""} onClick={() => { setMode("upload"); setScanning(false); }}>Upload a photo</button>
                 </div>
 
-                {mode === "scan" && !scanning && (
+                {mode === "scan" && !scanning && !emergency && symptomAnswers !== null && (
                   <div className="consent">
                     <div className="consent-t">Before we turn on the camera</div>
                     <div className="consent-l"><span className="ck">✓</span><span>The camera is used only to capture one still photo of the skin area, for information.</span></div>
@@ -376,6 +429,43 @@ export default function App() {
                     <button className="btn" style={{ marginTop: 16 }} onClick={() => setScanning(true)}>Allow camera &amp; start scan</button>
                     <p className="consent-note">Prefer not to use the camera? Switch to “Upload a photo” above.</p>
                   </div>
+                )}
+
+                {/* EMERGENCY SHORT-CIRCUIT — no photo, no model, flow stops here. */}
+                {mode === "scan" && emergency && (
+                  <section className="sf-emergency">
+                    <h2>Call emergency services now</h2>
+                    <p>Based on what you told us, this needs immediate help — not a photo.</p>
+                    <p className="sf-note">
+                      In India: <strong>112</strong> (national emergency) or
+                      {" "}<strong>108</strong> (ambulance in most states).
+                    </p>
+                    <button onClick={() => { setEmergency(null); setSymptomAnswers(null); }}>
+                      Start over
+                    </button>
+                  </section>
+                )}
+
+
+                {/* POST-CAPTURE: remaining gate questions, then the metadata form.
+                    The photo is banked first; these spend patience afterwards. */}
+                {img && stage === "rest" && (
+                  <SymptomFlow
+                    phase="rest"
+                    onEmergency={(answers, result) => { setSymptomAnswers(answers); setSymptomTier(result); setEmergency(result); }}
+                    onComplete={(answers, result) => {
+                      setSymptomAnswers({ ...symptomAnswers, ...answers });
+                      setSymptomTier(result);
+                      setStage("meta");
+                    }}
+                  />
+                )}
+
+                {img && stage === "meta" && (
+                  <MetadataForm
+                    onSkip={() => setStage("done")}
+                    onComplete={(v) => { setClinicalMeta(v); setStage("done"); }}
+                  />
                 )}
 
                 {mode === "scan" && pending && (
@@ -387,7 +477,7 @@ export default function App() {
                   />
                 )}
 
-                {mode === "scan" && scanning && !pending && (
+                {mode === "scan" && scanning && !pending && !emergency && (
                   <ScanCamera
                     captureMode={captureMode}
                     onModeChange={setCaptureMode}
@@ -408,72 +498,11 @@ export default function App() {
             )}
             <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
 
-            <div className="field">
-              <div className="label">Where on the body?</div>
-              <div className="seg">
-                {LOCS.map((o) => (
-                  <button key={o} className={"ob" + (loc === o ? " on" : "")} onClick={() => setLoc(o)}>{o}</button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="label">How long has it been there?</div>
-              <div className="seg">
-                {DURS.map((o) => (
-                  <button key={o} className={"ob" + (dur === o ? " on" : "")} onClick={() => setDur(o)}>{o}</button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="label">Any symptoms?<span className="opt">select any</span></div>
-              <div className="seg">
-                {SYMS.map((o) => (
-                  <button key={o} className={"ob chip" + (sym.includes(o) ? " on" : "")} onClick={() => toggleSym(o)}>{o}</button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="label">Has it changed recently?<span className="opt">optional</span></div>
-              <div className="seg">
-                {CHANGES.map((o) => (
-                  <button key={o} className={"ob" + (change === o ? " on" : "")} onClick={() => setChange(o)}>{o}</button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="label">Already applied any cream or ointment?<span className="opt">optional</span></div>
-              <div className="seg">
-                {["yes", "no"].map((o) => (
-                  <button key={o} className={"ob" + (applied === o ? " on" : "")} onClick={() => { setApplied(o); if (o === "no") setSteroid(""); }}>{o === "yes" ? "Yes" : "No"}</button>
-                ))}
-              </div>
-            </div>
-
-            {applied === "yes" && (
-              <div className="field">
-                <div className="label">Was it a steroid or combination cream?<span className="opt">if you know</span></div>
-                <div className="seg">
-                  {["Yes", "No", "Not sure"].map((o) => (
-                    <button key={o} className={"ob" + (steroid === o ? " on" : "")} onClick={() => setSteroid(o)}>{o}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="field">
-              <div className="label">Your skin tone<span className="opt">helps flag where the read is less reliable</span></div>
-              <div className="seg">
-                {TONES.map((o) => (
-                  <button key={o.l} className={"ob" + (tone === o.l ? " on" : "")} onClick={() => setTone(o.l)}>{o.l}</button>
-                ))}
-              </div>
-            </div>
-
-            {trainingConsent === true && (
+            {/* LEGACY FORM REMOVED — its five clinical fields moved to <MetadataForm/>,
+                asked after capture. Removing it orphaned this block's opening
+                `{trainingConsent === true && (`, leaving a bare `)}` that React
+                rendered as literal text at the bottom of the page. */}
+            {trainingConsent === true && img && (
               <label className="blurtoggle">
                 <input type="checkbox" checked={blurFaces} onChange={(e) => setBlurFaces(e.target.checked)} />
                 <span>Blur faces in the stored photo <span className="opt">recommended for face areas · done on your device</span></span>

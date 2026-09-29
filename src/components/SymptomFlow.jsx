@@ -36,8 +36,15 @@ function report(step) {
   }).catch(() => {});
 }
 
-export default function SymptomFlow({ onComplete, onEmergency }) {
-  const [screen, setScreen] = useState(0);   // 0 = urgent-now, then one per rule group
+/**
+ * @param phase "emergency" -> only the airway screen, shown BEFORE the camera.
+ *              "rest"      -> the remaining rule groups, shown AFTER capture.
+ * Splitting them is the ordering decision: airway angioedema is minutes-scale and
+ * must not require taking a photo, but everything else can wait until the photo —
+ * the scarce artifact — is banked.
+ */
+export default function SymptomFlow({ phase = "emergency", onComplete, onEmergency }) {
+  const [screen, setScreen] = useState(phase === "rest" ? 1 : 0);
   const [answers, setAnswers] = useState({});
 
   const set = (field, value) => setAnswers((a) => ({ ...a, [field]: value }));
@@ -62,9 +69,18 @@ export default function SymptomFlow({ onComplete, onEmergency }) {
         </ul>
         <div className="sf-actions">
           <button className="primary" onClick={() => {
-            const r = scoreSymptoms(answers);
-            if (r.shortCircuit) { onEmergency(answers, r); return; }
-            setScreen(1);
+            // Every airway field explicitly true/false. An untouched checkbox never
+            // fires onChange, so without this three of the four land BLANK in the row
+            // and "not asked" becomes indistinguishable from "answered no" — on the
+            // rule whose firing rate the pilot most needs and whose prevalence anchor
+            // is weakest. The post-capture screens already do this; this one did not.
+            const full = { ...answers };
+            for (const f of EMERGENCY_RULE.fields) full[f] = answers[f] === true;
+            const r = scoreSymptoms(full);
+            if (r.shortCircuit) { onEmergency(full, r); return; }
+            // phase "emergency" hands back here: the camera comes next, and the
+            // remaining questions run after the photo is taken.
+            onComplete(full, r);
           }}>{anyChecked ? "Continue" : "None of these"}</button>
         </div>
         <p className="sf-note">
@@ -76,9 +92,7 @@ export default function SymptomFlow({ onComplete, onEmergency }) {
 
   // ---- one screen per remaining rule group ----
   const group = REST[screen - 1];
-  if (!group) {
-    return null;
-  }
+  if (!group) return null;
   const isLast = screen - 1 === REST.length - 1;
 
   return (

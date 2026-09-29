@@ -72,3 +72,62 @@ export async function tryBlurFaces(dataUrl) {
     return { ...passthrough, supported: true };
   }
 }
+
+
+/**
+ * Post a reticle-path capture into the HOLDOUT schema (data/holdout/labels.csv),
+ * which is what ml/eval_holdout.py reads. Distinct from saveCase(), which writes the
+ * older SQLite console record — the two serve different consumers and both are kept.
+ *
+ * Fire-and-forget: storage never blocks or changes what the user sees.
+ */
+export async function saveHoldoutCapture({ shot, symptoms, symptomResult, withdrawalToken }) {
+  try {
+    const res = await fetch("/api/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        modelInputB64: shot.dataUrl?.split(",")[1] ?? shot.b64,
+        originalB64: shot.originalB64,
+        crop: shot.crop || {},
+        meta: {
+          ...(shot.meta || {}),
+          language: "en",
+          questionnaireVersion: CONSENT_VERSION,
+          // Recorded explicitly rather than inferred from which fields happen to be
+          // present, so an upload row's blanks are legible as expected-by-path.
+          capturePath: shot.capturePath || (shot.crop?.method ? "scan" : "upload"),
+          deviceModel: navigator.userAgent.slice(0, 80),
+        },
+        quality: shot.quality || {},
+        symptoms: symptoms || {},
+        symptomResult: symptomResult || { tier: "none", rulesFired: [] },
+        consent: { training: true, version: CONSENT_VERSION, withdrawalToken },
+      }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
+/** Emergency short-circuit: no photo taken, but the encounter is still recorded. */
+export async function saveShortCircuit({ symptoms, symptomResult, withdrawalToken }) {
+  try {
+    const res = await fetch("/api/capture/short-circuit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        meta: { language: "en", questionnaireVersion: CONSENT_VERSION,
+                deviceModel: navigator.userAgent.slice(0, 80) },
+        symptoms, symptomResult,
+        consent: { training: true, version: CONSENT_VERSION, withdrawalToken },
+      }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
+/** Short, human-readable code. The ONLY handle a participant has for withdrawal. */
+export function newWithdrawalToken() {
+  const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";   // no confusable characters
+  return Array.from({ length: 8 }, () => A[Math.floor(Math.random() * A.length)]).join("");
+}

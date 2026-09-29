@@ -215,6 +215,8 @@ def main() -> int:
                                   "auprc": auprc(s, is_pos), "thresholds": tbl}
 
     # ---- the first fairness number this project can honestly report ----
+    # ONLY reader-assigned fitzpatrick counts here. self_reported_tone is read
+    # separately below for the three-way tone comparison, and cannot enable this block.
     fitz = defaultdict(list)
     for i, e in enumerate(per_image):
         if e["fitzpatrick"]:
@@ -236,8 +238,12 @@ def main() -> int:
                   f"mean urgent {fair[band]['mean_urgent_score']:.3f}  "
                   f"feat-dist {fair[band]['mean_feature_distance']:.1f}")
         out_metrics["by_fitzpatrick"] = fair
+        # fairness_measurable means A TRAINED READER ASSIGNED THE TONE. Self-report
+        # (self_reported_tone, Monk swatch) must never flip it: it is noisy, and a
+        # flag that quietly downgrades to "someone ticked a colour" would let an
+        # unvalidated fairness claim through exactly the check meant to stop it.
         meta["fairness_measurable"] = True
-        meta["fitzpatrick"] = "provided"
+        meta["fitzpatrick"] = "reader-assigned"
         print("  NOTE: small n per band — treat as directional, not a claim.")
     else:
         print("\n=== BY FITZPATRICK ===\n  No fitzpatrick column supplied — still no "

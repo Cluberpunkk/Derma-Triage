@@ -19,7 +19,8 @@
     "ml:eval": "ml/.venv/bin/python ml/evaluate.py",
     "ml:predict": "ml/.venv/bin/python ml/predict.py",
     "gen:symptoms": "ml/.venv/bin/python ml/gen_symptom_rules.py",
-    "test:conformance": "node tests/conformance.mjs && ml/.venv/bin/python tests/conformance_py.py"
+    "test:conformance": "node tests/conformance.mjs && ml/.venv/bin/python tests/conformance_py.py",
+    "check": "node tests/conformance.mjs && ml/.venv/bin/python tests/conformance_py.py && node tests/column_coverage.mjs && node tests/client_path.mjs && node tests/shortcircuit_path.mjs && ml/.venv/bin/python ml/check_surfaces.py --check && ml/.venv/bin/python ml/check_wiring.py --check && ml/.venv/bin/python ml/gen_symptom_rules.py --check"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
